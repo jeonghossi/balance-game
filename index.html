@@ -179,8 +179,10 @@ const BASE_QUESTIONS = [
 ];
 // 질문을 추가할 때는 새 번호(q26, q27 …)를 붙이세요. 이미 있는 번호를 바꾸면 그 질문의 투표 기록이 사라져요.
 
-// Firebase Realtime Database 주소 (비워 두면 비율 기능이 꺼져요)
-const FIREBASE_DB_URL = "";
+// 투표 수는 무료 숫자 세기 서비스 Abacus(https://abacus.jasoncameron.dev)에 모아요.
+// 질문마다 "q01-a", "q01-b" 같은 숫자 두 개를 써요. 빈 문자열로 두면 비율 기능이 꺼져요.
+const COUNTER_URL = "https://abacus.jasoncameron.dev";
+const COUNTER_NS = "jeonghossi-balance-game";
 
 const STORE_KEY = "balance-custom-questions";
 const VOTED_KEY = "balance-voted";     // 이 기기에서 이미 투표한 질문 { id: "a" | "b" }
@@ -197,38 +199,49 @@ function loadCustom() { return load(STORE_KEY, []); }
 function saveCustom(list) { save(STORE_KEY, list); }
 
 // ----- 투표 집계 -----
-let votes = null; // 서버에서 받아 온 { id: { a, b } }, 못 받아 왔으면 null
+let votes = {}; // 서버에서 받아 온 { id: { a, b } } (받아 온 질문만 들어 있어요)
 let voted = load(VOTED_KEY, {});
 let pending = load(PENDING_KEY, []);
+const counterKey = (id, side) => `${COUNTER_URL}/%s/${COUNTER_NS}/${id}-${side}`;
 
-async function fetchVotes() {
-  if (!FIREBASE_DB_URL || !navigator.onLine) return;
+// 한 질문의 숫자 하나를 읽어요. 아직 아무도 안 골랐으면(404) 0이에요.
+async function getCount(id, side) {
+  const res = await fetch(counterKey(id, side).replace("%s", "get"), { cache: "no-store" });
+  if (res.status === 404) return 0;
+  if (!res.ok) throw new Error(res.status);
+  return (await res.json()).value || 0;
+}
+
+// 질문 하나의 집계를 받아 와요. 받아 오면 true.
+async function fetchVotes(id) {
+  if (!COUNTER_URL || !id || !navigator.onLine) return false;
   try {
-    const res = await fetch(`${FIREBASE_DB_URL}/votes.json`, { cache: "no-store" });
-    if (!res.ok) throw new Error(res.status);
-    votes = (await res.json()) || {};
+    const [a, b] = await Promise.all([getCount(id, "a"), getCount(id, "b")]);
+    votes[id] = { a, b };
+    return true;
   } catch (e) {
     console.warn("투표 집계를 불러오지 못했어요:", e);
+    return false;
   }
 }
 
 let flushing = false;
 async function flushVotes() {
-  if (!FIREBASE_DB_URL || !navigator.onLine || flushing) return;
+  if (!COUNTER_URL || !navigator.onLine || flushing) return;
   flushing = true;
   try {
     while (pending.length) {
       const { id, side } = pending[0];
-      const res = await fetch(`${FIREBASE_DB_URL}/votes/${id}/${side}.json`, {
-        method: "PUT",
-        body: JSON.stringify({ ".sv": { increment: 1 } })
-      });
+      const res = await fetch(counterKey(id, side).replace("%s", "hit"), { cache: "no-store" });
       if (!res.ok) throw new Error(res.status);
+      const { value } = await res.json();
+      if (votes[id] && typeof value === "number") votes[id][side] = value;
       pending.shift();
       save(PENDING_KEY, pending);
     }
   } catch (e) {
     console.warn("투표를 보내지 못했어요. 나중에 다시 보낼게요:", e);
+    setTimeout(flushVotes, 5000);
   } finally {
     flushing = false;
   }
@@ -241,10 +254,7 @@ function recordVote(id, side) {
   save(VOTED_KEY, voted);
   pending.push({ id, side });
   save(PENDING_KEY, pending);
-  if (votes) {
-    votes[id] = votes[id] || {};
-    votes[id][side] = (votes[id][side] || 0) + 1;
-  }
+  if (votes[id]) votes[id][side] = (votes[id][side] || 0) + 1;
   flushVotes();
   return true;
 }
@@ -255,7 +265,7 @@ function origSide(q, side) { return (q.flipped ? 1 - side : side) === 0 ? "a" : 
 // 화면에 보이는 순서 기준의 [위 표수, 아래 표수]
 // tentative: 아직 확정 전인 내 선택(화면 순서)도 미리 더해서 보여 줘요
 function countsFor(q, tentative) {
-  if (!q.id || !votes) return null;
+  if (!q.id || !votes[q.id]) return null;
   const v = { ...votes[q.id] };
   if (tentative !== undefined && !voted[q.id]) {
     const s = origSide(q, tentative);
@@ -297,8 +307,24 @@ function startGame() {
   picks = [];
   show("game");
   renderQuestion();
-  // 게임 중에 최신 집계를 받아 둬요
-  flushVotes().then(fetchVotes);
+  flushVotes();
+}
+
+// 문제가 나오면 그 질문의 최신 집계를 받아 와요. 이미 골랐으면 받아 온 숫자로 다시 보여 줘요.
+// 서버가 바쁘면(요청 한도: 10초에 30번) 몇 초 뒤 다시 시도해요.
+const loading = new Set();
+const retries = {};
+function loadVotesFor(q) {
+  if (!q.id || loading.has(q.id)) return;
+  loading.add(q.id);
+  fetchVotes(q.id).then(ok => {
+    loading.delete(q.id);
+    const current = round[index] === q;
+    if (!ok && current && navigator.onLine && (retries[q.id] = (retries[q.id] || 0) + 1) <= 3) {
+      setTimeout(() => { if (round[index] === q) loadVotesFor(q); }, 4000);
+    }
+    if (current && picks[index] !== undefined) renderStats();
+  });
 }
 
 function renderQuestion() {
@@ -314,6 +340,8 @@ function renderQuestion() {
   });
   $("note").textContent = "";
   $("nextBtn").classList.add("hidden");
+  if (q.id && !votes[q.id]) retries[q.id] = 0;
+  loadVotesFor(q);
 }
 
 // "다음"을 누르기 전까지는 다른 쪽을 눌러 바꿀 수 있어요. 투표는 "다음"을 누를 때 확정돼요.
@@ -325,7 +353,15 @@ function choose(side) {
   $(side === 0 ? "optA" : "optB").classList.remove("dim");
   $(side === 0 ? "optB" : "optA").classList.add("dim");
   $(side === 0 ? "optB" : "optA").classList.remove("picked");
+  renderStats();
+  $("nextBtn").textContent = index + 1 < round.length ? "다음 →" : "결과 보기";
+  $("nextBtn").classList.remove("hidden");
+}
 
+// 고른 뒤 두 선택지의 비율과 안내 문구를 보여 줘요
+function renderStats() {
+  const q = round[index];
+  const side = picks[index];
   let note = "";
   if (q.id && voted[q.id]) {
     note = "이 질문은 전에 투표해서, 처음 고른 답으로 집계돼 있어요.";
@@ -342,14 +378,14 @@ function choose(side) {
       btn.querySelector(".fill").style.width = `${pct(c[i], total)}%`;
     });
     if (!note) note = `지금까지 ${total}명이 골랐어요. 다음을 누르기 전에는 바꿀 수 있어요.`;
-  } else if (q.id) {
-    note = FIREBASE_DB_URL
+  } else if (q.id && COUNTER_URL) {
+    note = !navigator.onLine
       ? "인터넷에 연결되면 다른 사람들의 선택 비율을 볼 수 있어요."
-      : "";
+      : loading.has(q.id) || (retries[q.id] || 0) <= 3
+        ? "다른 사람들의 선택을 불러오는 중이에요…"
+        : "지금은 다른 사람들의 선택을 불러오지 못했어요. 내 선택은 저장돼요.";
   }
   $("note").textContent = note || "다음을 누르기 전에는 바꿀 수 있어요.";
-  $("nextBtn").textContent = index + 1 < round.length ? "다음 →" : "결과 보기";
-  $("nextBtn").classList.remove("hidden");
 }
 
 function next() {
@@ -443,8 +479,11 @@ window.addEventListener("offline", updateNet);
 updateNet();
 
 // 오프라인일 때 쌓인 투표는 연결되면 보내요
-window.addEventListener("online", () => flushVotes().then(fetchVotes));
-flushVotes().then(fetchVotes);
+window.addEventListener("online", () => {
+  flushVotes();
+  if (!$("game").classList.contains("hidden")) loadVotesFor(round[index]);
+});
+flushVotes();
 
 // 오프라인 지원: 서비스 워커 등록
 if ("serviceWorker" in navigator) {

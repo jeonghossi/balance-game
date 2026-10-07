@@ -1,5 +1,5 @@
 // 버전을 올리면 새 파일로 캐시가 갱신됩니다.
-const CACHE = "balance-game-v3";
+const CACHE = "balance-game-v4";
 const FILES = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", e => {
