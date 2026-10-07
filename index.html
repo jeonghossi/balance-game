@@ -49,7 +49,17 @@
   .choice:active { transform: scale(.97); }
   .choice.a { background: var(--a); }
   .choice.b { background: var(--b); }
-  .choice.dim { opacity: .35; }
+  .choice.dim { opacity: .45; }
+  .choice { position: relative; overflow: hidden; }
+  .choice .label, .choice .pct { position: relative; z-index: 1; display: block; }
+  .choice .pct { font-size: .95rem; font-weight: 600; margin-top: 6px; }
+  .choice .fill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+    background: rgba(255,255,255,.28); transition: width .6s ease-out;
+  }
+  .choice.picked { outline: 4px solid var(--accent); outline-offset: 2px; }
+  .note { text-align: center; color: var(--sub); font-size: .85rem; margin-top: 12px; min-height: 1.2em; }
+  .stat { color: var(--sub); font-size: .8rem; font-weight: 400; }
   .vs { text-align: center; font-weight: 900; font-size: 1.3rem; color: var(--sub); }
   .row { display: flex; gap: 8px; margin-top: 16px; }
   .btn {
@@ -85,7 +95,7 @@
   <!-- 시작 화면 -->
   <section id="start" class="card">
     <h2>둘 중 하나만 고르세요!</h2>
-    <p class="sub">인터넷이 없어도 플레이할 수 있어요. 직접 만든 질문도 추가할 수 있어요.</p>
+    <p class="sub">고르고 나면 다른 사람들은 무엇을 골랐는지 비율을 보여 줘요. 직접 만든 질문도 추가할 수 있어요.</p>
     <label for="count">문제 수</label>
     <input id="count" type="number" min="1" value="10">
     <div class="row">
@@ -101,9 +111,13 @@
     <div class="progress" id="progress"></div>
     <div class="bar"><div id="barFill"></div></div>
     <div class="choices">
-      <button class="choice a" id="optA"></button>
+      <button class="choice a" id="optA"><div class="fill"></div><span class="label"></span><span class="pct"></span></button>
       <div class="vs">VS</div>
-      <button class="choice b" id="optB"></button>
+      <button class="choice b" id="optB"><div class="fill"></div><span class="label"></span><span class="pct"></span></button>
+    </div>
+    <p class="note" id="note"></p>
+    <div class="row">
+      <button class="btn hidden" id="nextBtn">다음 →</button>
     </div>
   </section>
 
@@ -137,42 +151,112 @@
 
 <script>
 const BASE_QUESTIONS = [
-  ["평생 여름", "평생 겨울"],
-  ["평생 라면 금지", "평생 치킨 금지"],
-  ["투명인간 되기", "하늘 날기"],
-  ["과거로 가기", "미래로 가기"],
-  ["10억 받고 무인도 1년", "그냥 지금처럼 살기"],
-  ["모든 언어 가능", "모든 악기 연주 가능"],
-  ["매일 1시간 일찍 일어나기", "매일 1시간 늦게 자기"],
-  ["친구 100명", "진짜 친구 1명"],
-  ["평생 폰 없이 살기", "평생 컴퓨터 없이 살기"],
-  ["생각이 다 들리는 능력", "미래가 보이는 능력"],
-  ["짜장면", "짬뽕"],
-  ["부먹", "찍먹"],
-  ["바다 여행", "산 여행"],
-  ["엄청 똑똑하기", "엄청 잘생기기/예쁘기"],
-  ["잠 안 자도 되는 몸", "안 먹어도 되는 몸"],
-  ["여름에 패딩 입기", "겨울에 반팔 입기"],
-  ["좋아하는 노래 한 곡만 평생 듣기", "평생 노래 못 듣기"],
-  ["순간이동", "시간 멈추기"],
-  ["강아지", "고양이"],
-  ["민트초코 평생 먹기", "하와이안 피자 평생 먹기"],
-  ["숙제 없는 학교", "시험 없는 학교"],
-  ["말할 때마다 노래로 하기", "걸을 때마다 춤추기"],
-  ["100살까지 평범하게", "50살까지 원하는 대로"],
-  ["와이파이 없는 호텔", "에어컨 없는 호텔"],
-  ["탕수육", "깐풍기"]
+  ["q01", "평생 여름", "평생 겨울"],
+  ["q02", "평생 라면 금지", "평생 치킨 금지"],
+  ["q03", "투명인간 되기", "하늘 날기"],
+  ["q04", "과거로 가기", "미래로 가기"],
+  ["q05", "10억 받고 무인도 1년", "그냥 지금처럼 살기"],
+  ["q06", "모든 언어 가능", "모든 악기 연주 가능"],
+  ["q07", "매일 1시간 일찍 일어나기", "매일 1시간 늦게 자기"],
+  ["q08", "친구 100명", "진짜 친구 1명"],
+  ["q09", "평생 폰 없이 살기", "평생 컴퓨터 없이 살기"],
+  ["q10", "생각이 다 들리는 능력", "미래가 보이는 능력"],
+  ["q11", "짜장면", "짬뽕"],
+  ["q12", "부먹", "찍먹"],
+  ["q13", "바다 여행", "산 여행"],
+  ["q14", "엄청 똑똑하기", "엄청 잘생기기/예쁘기"],
+  ["q15", "잠 안 자도 되는 몸", "안 먹어도 되는 몸"],
+  ["q16", "여름에 패딩 입기", "겨울에 반팔 입기"],
+  ["q17", "좋아하는 노래 한 곡만 평생 듣기", "평생 노래 못 듣기"],
+  ["q18", "순간이동", "시간 멈추기"],
+  ["q19", "강아지", "고양이"],
+  ["q20", "민트초코 평생 먹기", "하와이안 피자 평생 먹기"],
+  ["q21", "숙제 없는 학교", "시험 없는 학교"],
+  ["q22", "말할 때마다 노래로 하기", "걸을 때마다 춤추기"],
+  ["q23", "100살까지 평범하게", "50살까지 원하는 대로"],
+  ["q24", "와이파이 없는 호텔", "에어컨 없는 호텔"],
+  ["q25", "탕수육", "깐풍기"]
 ];
+// 질문을 추가할 때는 새 번호(q26, q27 …)를 붙이세요. 이미 있는 번호를 바꾸면 그 질문의 투표 기록이 사라져요.
+
+// Firebase Realtime Database 주소 (비워 두면 비율 기능이 꺼져요)
+const FIREBASE_DB_URL = "";
 
 const STORE_KEY = "balance-custom-questions";
+const VOTED_KEY = "balance-voted";     // 이 기기에서 이미 투표한 질문 { id: "a" | "b" }
+const PENDING_KEY = "balance-pending"; // 아직 서버에 못 보낸 투표 [{ id, side }]
 const $ = id => document.getElementById(id);
 
-function loadCustom() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; }
+function load(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; }
 }
-function saveCustom(list) {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); } catch {}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
 }
+function loadCustom() { return load(STORE_KEY, []); }
+function saveCustom(list) { save(STORE_KEY, list); }
+
+// ----- 투표 집계 -----
+let votes = null; // 서버에서 받아 온 { id: { a, b } }, 못 받아 왔으면 null
+let voted = load(VOTED_KEY, {});
+let pending = load(PENDING_KEY, []);
+
+async function fetchVotes() {
+  if (!FIREBASE_DB_URL || !navigator.onLine) return;
+  try {
+    const res = await fetch(`${FIREBASE_DB_URL}/votes.json`, { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    votes = (await res.json()) || {};
+  } catch (e) {
+    console.warn("투표 집계를 불러오지 못했어요:", e);
+  }
+}
+
+let flushing = false;
+async function flushVotes() {
+  if (!FIREBASE_DB_URL || !navigator.onLine || flushing) return;
+  flushing = true;
+  try {
+    while (pending.length) {
+      const { id, side } = pending[0];
+      const res = await fetch(`${FIREBASE_DB_URL}/votes/${id}/${side}.json`, {
+        method: "PUT",
+        body: JSON.stringify({ ".sv": { increment: 1 } })
+      });
+      if (!res.ok) throw new Error(res.status);
+      pending.shift();
+      save(PENDING_KEY, pending);
+    }
+  } catch (e) {
+    console.warn("투표를 보내지 못했어요. 나중에 다시 보낼게요:", e);
+  } finally {
+    flushing = false;
+  }
+}
+
+// 같은 기기에서는 질문마다 처음 고른 것만 집계해요.
+function recordVote(id, side) {
+  if (voted[id]) return false;
+  voted[id] = side;
+  save(VOTED_KEY, voted);
+  pending.push({ id, side });
+  save(PENDING_KEY, pending);
+  if (votes) {
+    votes[id] = votes[id] || {};
+    votes[id][side] = (votes[id][side] || 0) + 1;
+  }
+  flushVotes();
+  return true;
+}
+
+// 화면에 보이는 순서(0: 위, 1: 아래) 기준의 [위 표수, 아래 표수]
+function countsFor(q) {
+  if (!q.id || !votes) return null;
+  const v = votes[q.id] || {};
+  const c = [v.a || 0, v.b || 0];
+  return q.flipped ? [c[1], c[0]] : c;
+}
+function pct(n, total) { return total ? Math.round((n / total) * 100) : 0; }
 
 let custom = loadCustom();
 let round = [];
@@ -194,37 +278,78 @@ function shuffle(arr) {
 }
 
 function startGame() {
-  const all = BASE_QUESTIONS.concat(custom);
+  const all = BASE_QUESTIONS.map(([id, a, b]) => ({ id, opts: [a, b] }))
+    .concat(custom.map(([a, b]) => ({ id: null, opts: [a, b] })));
   const n = Math.max(1, Math.min(all.length, parseInt($("count").value) || 10));
-  // 선택지 좌우(A/B) 순서도 무작위로
-  round = shuffle(all).slice(0, n).map(q => Math.random() < .5 ? q : [q[1], q[0]]);
+  // 선택지 위/아래 순서도 무작위로
+  round = shuffle(all).slice(0, n).map(q => {
+    const flipped = Math.random() < .5;
+    return { ...q, flipped, opts: flipped ? [q.opts[1], q.opts[0]] : q.opts };
+  });
   index = 0;
   picks = [];
   show("game");
   renderQuestion();
+  // 게임 중에 최신 집계를 받아 둬요
+  flushVotes().then(fetchVotes);
 }
 
 function renderQuestion() {
-  const [a, b] = round[index];
+  const q = round[index];
   $("progress").textContent = `${index + 1} / ${round.length}`;
   $("barFill").style.width = `${(index / round.length) * 100}%`;
-  $("optA").textContent = a;
-  $("optB").textContent = b;
-  $("optA").classList.remove("dim");
-  $("optB").classList.remove("dim");
+  ["optA", "optB"].forEach((btnId, i) => {
+    const btn = $(btnId);
+    btn.querySelector(".label").textContent = q.opts[i];
+    btn.querySelector(".pct").textContent = "";
+    btn.querySelector(".fill").style.width = "0";
+    btn.classList.remove("dim", "picked");
+  });
+  $("note").textContent = "";
+  $("nextBtn").classList.add("hidden");
   locked = false;
 }
 
 function choose(side) {
   if (locked) return;
   locked = true;
+  const q = round[index];
   picks.push(side);
+  $(side === 0 ? "optA" : "optB").classList.add("picked");
   $(side === 0 ? "optB" : "optA").classList.add("dim");
-  setTimeout(() => {
-    index++;
-    if (index < round.length) renderQuestion();
-    else showResult();
-  }, 450);
+
+  let note = "";
+  if (q.id) {
+    const origSide = (q.flipped ? 1 - side : side) === 0 ? "a" : "b";
+    const isNew = recordVote(q.id, origSide);
+    if (!isNew) note = "이 질문은 전에 투표해서, 처음 고른 답으로 집계돼 있어요.";
+  } else {
+    note = "내가 만든 질문은 다른 사람과 비율을 비교할 수 없어요.";
+  }
+
+  const c = countsFor(q);
+  if (c) {
+    const total = c[0] + c[1];
+    ["optA", "optB"].forEach((btnId, i) => {
+      const btn = $(btnId);
+      btn.querySelector(".pct").textContent = `${pct(c[i], total)}% · ${c[i]}명`;
+      btn.querySelector(".fill").style.width = `${pct(c[i], total)}%`;
+    });
+    if (!note) note = `지금까지 ${total}명이 골랐어요.`;
+  } else if (q.id) {
+    note = FIREBASE_DB_URL
+      ? "인터넷에 연결되면 다른 사람들의 선택 비율을 볼 수 있어요."
+      : "";
+  }
+  $("note").textContent = note;
+  $("nextBtn").textContent = index + 1 < round.length ? "다음 →" : "결과 보기";
+  $("nextBtn").classList.remove("hidden");
+}
+
+function next() {
+  index++;
+  if (index < round.length) renderQuestion();
+  else showResult();
 }
 
 function showResult() {
@@ -237,10 +362,17 @@ function showResult() {
     const li = document.createElement("li");
     const qDiv = document.createElement("div");
     qDiv.className = "q";
-    qDiv.textContent = `${q[0]} vs ${q[1]}`;
+    qDiv.textContent = `${q.opts[0]} vs ${q.opts[1]}`;
     const pick = document.createElement("div");
     pick.className = picks[i] === 0 ? "pick-a" : "pick-b";
-    pick.textContent = "👉 " + q[picks[i]];
+    pick.textContent = "👉 " + q.opts[picks[i]];
+    const c = countsFor(q);
+    if (c) {
+      const stat = document.createElement("span");
+      stat.className = "stat";
+      stat.textContent = ` · ${c[0] + c[1]}명 중 ${pct(c[picks[i]], c[0] + c[1])}%가 같은 선택`;
+      pick.appendChild(stat);
+    }
     li.append(qDiv, pick);
     list.appendChild(li);
   });
@@ -289,6 +421,7 @@ $("addBtn").onclick = addCustom;
 $("newB").addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
 $("optA").onclick = () => choose(0);
 $("optB").onclick = () => choose(1);
+$("nextBtn").onclick = next;
 
 // 온라인/오프라인 표시
 function updateNet() {
@@ -299,6 +432,10 @@ function updateNet() {
 window.addEventListener("online", updateNet);
 window.addEventListener("offline", updateNet);
 updateNet();
+
+// 오프라인일 때 쌓인 투표는 연결되면 보내요
+window.addEventListener("online", () => flushVotes().then(fetchVotes));
+flushVotes().then(fetchVotes);
 
 // 오프라인 지원: 서비스 워커 등록
 if ("serviceWorker" in navigator) {
