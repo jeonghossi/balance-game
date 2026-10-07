@@ -249,10 +249,18 @@ function recordVote(id, side) {
   return true;
 }
 
-// 화면에 보이는 순서(0: 위, 1: 아래) 기준의 [위 표수, 아래 표수]
-function countsFor(q) {
+// 화면 순서(0: 위, 1: 아래)를 저장용 "a" / "b"로
+function origSide(q, side) { return (q.flipped ? 1 - side : side) === 0 ? "a" : "b"; }
+
+// 화면에 보이는 순서 기준의 [위 표수, 아래 표수]
+// tentative: 아직 확정 전인 내 선택(화면 순서)도 미리 더해서 보여 줘요
+function countsFor(q, tentative) {
   if (!q.id || !votes) return null;
-  const v = votes[q.id] || {};
+  const v = { ...votes[q.id] };
+  if (tentative !== undefined && !voted[q.id]) {
+    const s = origSide(q, tentative);
+    v[s] = (v[s] || 0) + 1;
+  }
   const c = [v.a || 0, v.b || 0];
   return q.flipped ? [c[1], c[0]] : c;
 }
@@ -262,7 +270,6 @@ let custom = loadCustom();
 let round = [];
 let index = 0;
 let picks = [];
-let locked = false;
 
 function show(id) {
   ["start", "game", "result", "edit"].forEach(s => $(s).classList.toggle("hidden", s !== id));
@@ -307,27 +314,26 @@ function renderQuestion() {
   });
   $("note").textContent = "";
   $("nextBtn").classList.add("hidden");
-  locked = false;
 }
 
+// "다음"을 누르기 전까지는 다른 쪽을 눌러 바꿀 수 있어요. 투표는 "다음"을 누를 때 확정돼요.
 function choose(side) {
-  if (locked) return;
-  locked = true;
   const q = round[index];
-  picks.push(side);
+  if (picks[index] === side) return;
+  picks[index] = side;
   $(side === 0 ? "optA" : "optB").classList.add("picked");
+  $(side === 0 ? "optA" : "optB").classList.remove("dim");
   $(side === 0 ? "optB" : "optA").classList.add("dim");
+  $(side === 0 ? "optB" : "optA").classList.remove("picked");
 
   let note = "";
-  if (q.id) {
-    const origSide = (q.flipped ? 1 - side : side) === 0 ? "a" : "b";
-    const isNew = recordVote(q.id, origSide);
-    if (!isNew) note = "이 질문은 전에 투표해서, 처음 고른 답으로 집계돼 있어요.";
-  } else {
+  if (q.id && voted[q.id]) {
+    note = "이 질문은 전에 투표해서, 처음 고른 답으로 집계돼 있어요.";
+  } else if (!q.id) {
     note = "내가 만든 질문은 다른 사람과 비율을 비교할 수 없어요.";
   }
 
-  const c = countsFor(q);
+  const c = countsFor(q, side);
   if (c) {
     const total = c[0] + c[1];
     ["optA", "optB"].forEach((btnId, i) => {
@@ -335,18 +341,21 @@ function choose(side) {
       btn.querySelector(".pct").textContent = `${pct(c[i], total)}% · ${c[i]}명`;
       btn.querySelector(".fill").style.width = `${pct(c[i], total)}%`;
     });
-    if (!note) note = `지금까지 ${total}명이 골랐어요.`;
+    if (!note) note = `지금까지 ${total}명이 골랐어요. 다음을 누르기 전에는 바꿀 수 있어요.`;
   } else if (q.id) {
     note = FIREBASE_DB_URL
       ? "인터넷에 연결되면 다른 사람들의 선택 비율을 볼 수 있어요."
       : "";
   }
-  $("note").textContent = note;
+  $("note").textContent = note || "다음을 누르기 전에는 바꿀 수 있어요.";
   $("nextBtn").textContent = index + 1 < round.length ? "다음 →" : "결과 보기";
   $("nextBtn").classList.remove("hidden");
 }
 
 function next() {
+  const q = round[index];
+  if (picks[index] === undefined) return;
+  if (q.id) recordVote(q.id, origSide(q, picks[index]));
   index++;
   if (index < round.length) renderQuestion();
   else showResult();
