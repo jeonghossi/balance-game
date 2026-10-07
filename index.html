@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#6c5ce7">
+<title>밸런스 게임</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #f4f2ff;
+    --card: #ffffff;
+    --text: #222;
+    --sub: #777;
+    --a: #ff6b81;
+    --b: #4dabf7;
+    --accent: #6c5ce7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16151f; --card: #23222f; --text: #eee; --sub: #999; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  header { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 20px; }
+  h1 { font-size: 1.5rem; color: var(--accent); }
+  .status { font-size: .8rem; padding: 4px 10px; border-radius: 999px; background: var(--card); color: var(--sub); }
+  .status.off { color: #e67700; }
+  .card { background: var(--card); border-radius: 20px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,.08); }
+  .progress { font-size: .9rem; color: var(--sub); text-align: center; margin-bottom: 8px; }
+  .bar { height: 6px; background: rgba(128,128,128,.2); border-radius: 3px; overflow: hidden; margin-bottom: 20px; }
+  .bar > div { height: 100%; background: var(--accent); transition: width .3s; }
+  .choices { display: flex; flex-direction: column; gap: 12px; }
+  .choice {
+    border: none; border-radius: 16px; padding: 28px 16px;
+    font-size: 1.15rem; font-weight: 700; color: #fff; cursor: pointer;
+    transition: transform .15s, opacity .2s; word-break: keep-all; line-height: 1.4;
+  }
+  .choice:active { transform: scale(.97); }
+  .choice.a { background: var(--a); }
+  .choice.b { background: var(--b); }
+  .choice.dim { opacity: .35; }
+  .vs { text-align: center; font-weight: 900; font-size: 1.3rem; color: var(--sub); }
+  .row { display: flex; gap: 8px; margin-top: 16px; }
+  .btn {
+    flex: 1; border: none; border-radius: 12px; padding: 14px; font-size: 1rem; font-weight: 600;
+    cursor: pointer; background: var(--accent); color: #fff;
+  }
+  .btn.ghost { background: transparent; color: var(--accent); border: 2px solid var(--accent); }
+  .hidden { display: none !important; }
+  .result-list { list-style: none; margin: 16px 0; }
+  .result-list li { padding: 10px 0; border-bottom: 1px solid rgba(128,128,128,.2); font-size: .95rem; }
+  .result-list .q { color: var(--sub); font-size: .8rem; }
+  .pick-a { color: var(--a); font-weight: 700; }
+  .pick-b { color: var(--b); font-weight: 700; }
+  input {
+    width: 100%; padding: 12px; border-radius: 10px; border: 1px solid rgba(128,128,128,.4);
+    background: var(--bg); color: var(--text); font-size: 1rem; margin-top: 8px;
+  }
+  label { font-size: .9rem; color: var(--sub); display: block; margin-top: 12px; }
+  .custom-list { list-style: none; margin-top: 12px; max-height: 200px; overflow-y: auto; }
+  .custom-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; font-size: .9rem; border-bottom: 1px solid rgba(128,128,128,.2); }
+  .custom-list button { border: none; background: none; color: #e03131; cursor: pointer; font-size: 1rem; }
+  h2 { font-size: 1.2rem; margin-bottom: 8px; }
+  p.sub { color: var(--sub); font-size: .9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>⚖️ 밸런스 게임</h1>
+    <span id="net" class="status">온라인</span>
+  </header>
+
+  <!-- 시작 화면 -->
+  <section id="start" class="card">
+    <h2>둘 중 하나만 고르세요!</h2>
+    <p class="sub">인터넷이 없어도 플레이할 수 있어요. 직접 만든 질문도 추가할 수 있어요.</p>
+    <label for="count">문제 수</label>
+    <input id="count" type="number" min="1" value="10">
+    <div class="row">
+      <button class="btn" id="startBtn">시작하기</button>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="editBtn">질문 추가/관리</button>
+    </div>
+  </section>
+
+  <!-- 게임 화면 -->
+  <section id="game" class="card hidden">
+    <div class="progress" id="progress"></div>
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="choices">
+      <button class="choice a" id="optA"></button>
+      <div class="vs">VS</div>
+      <button class="choice b" id="optB"></button>
+    </div>
+  </section>
+
+  <!-- 결과 화면 -->
+  <section id="result" class="card hidden">
+    <h2>🎉 결과</h2>
+    <p class="sub" id="summary"></p>
+    <ul class="result-list" id="resultList"></ul>
+    <div class="row">
+      <button class="btn" id="againBtn">다시 하기</button>
+      <button class="btn ghost" id="homeBtn">처음으로</button>
+    </div>
+  </section>
+
+  <!-- 질문 관리 화면 -->
+  <section id="edit" class="card hidden">
+    <h2>✏️ 내 질문 만들기</h2>
+    <label for="newA">선택지 A</label>
+    <input id="newA" placeholder="예: 평생 여름">
+    <label for="newB">선택지 B</label>
+    <input id="newB" placeholder="예: 평생 겨울">
+    <div class="row">
+      <button class="btn" id="addBtn">추가</button>
+    </div>
+    <ul class="custom-list" id="customList"></ul>
+    <div class="row">
+      <button class="btn ghost" id="backBtn">돌아가기</button>
+    </div>
+  </section>
+</div>
+
+<script>
+const BASE_QUESTIONS = [
+  ["평생 여름", "평생 겨울"],
+  ["평생 라면 금지", "평생 치킨 금지"],
+  ["투명인간 되기", "하늘 날기"],
+  ["과거로 가기", "미래로 가기"],
+  ["10억 받고 무인도 1년", "그냥 지금처럼 살기"],
+  ["모든 언어 가능", "모든 악기 연주 가능"],
+  ["매일 1시간 일찍 일어나기", "매일 1시간 늦게 자기"],
+  ["친구 100명", "진짜 친구 1명"],
+  ["평생 폰 없이 살기", "평생 컴퓨터 없이 살기"],
+  ["생각이 다 들리는 능력", "미래가 보이는 능력"],
+  ["짜장면", "짬뽕"],
+  ["부먹", "찍먹"],
+  ["바다 여행", "산 여행"],
+  ["엄청 똑똑하기", "엄청 잘생기기/예쁘기"],
+  ["잠 안 자도 되는 몸", "안 먹어도 되는 몸"],
+  ["여름에 패딩 입기", "겨울에 반팔 입기"],
+  ["좋아하는 노래 한 곡만 평생 듣기", "평생 노래 못 듣기"],
+  ["순간이동", "시간 멈추기"],
+  ["강아지", "고양이"],
+  ["민트초코 평생 먹기", "하와이안 피자 평생 먹기"],
+  ["숙제 없는 학교", "시험 없는 학교"],
+  ["말할 때마다 노래로 하기", "걸을 때마다 춤추기"],
+  ["100살까지 평범하게", "50살까지 원하는 대로"],
+  ["와이파이 없는 호텔", "에어컨 없는 호텔"],
+  ["탕수육", "깐풍기"]
+];
+
+const STORE_KEY = "balance-custom-questions";
+const $ = id => document.getElementById(id);
+
+function loadCustom() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch { return []; }
+}
+function saveCustom(list) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(list)); } catch {}
+}
+
+let custom = loadCustom();
+let round = [];
+let index = 0;
+let picks = [];
+let locked = false;
+
+function show(id) {
+  ["start", "game", "result", "edit"].forEach(s => $(s).classList.toggle("hidden", s !== id));
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function startGame() {
+  const all = BASE_QUESTIONS.concat(custom);
+  const n = Math.max(1, Math.min(all.length, parseInt($("count").value) || 10));
+  // 선택지 좌우(A/B) 순서도 무작위로
+  round = shuffle(all).slice(0, n).map(q => Math.random() < .5 ? q : [q[1], q[0]]);
+  index = 0;
+  picks = [];
+  show("game");
+  renderQuestion();
+}
+
+function renderQuestion() {
+  const [a, b] = round[index];
+  $("progress").textContent = `${index + 1} / ${round.length}`;
+  $("barFill").style.width = `${(index / round.length) * 100}%`;
+  $("optA").textContent = a;
+  $("optB").textContent = b;
+  $("optA").classList.remove("dim");
+  $("optB").classList.remove("dim");
+  locked = false;
+}
+
+function choose(side) {
+  if (locked) return;
+  locked = true;
+  picks.push(side);
+  $(side === 0 ? "optB" : "optA").classList.add("dim");
+  setTimeout(() => {
+    index++;
+    if (index < round.length) renderQuestion();
+    else showResult();
+  }, 450);
+}
+
+function showResult() {
+  $("barFill").style.width = "100%";
+  const aCount = picks.filter(p => p === 0).length;
+  $("summary").textContent = `총 ${round.length}문제 · 위쪽 선택 ${aCount}번 · 아래쪽 선택 ${round.length - aCount}번`;
+  const list = $("resultList");
+  list.innerHTML = "";
+  round.forEach((q, i) => {
+    const li = document.createElement("li");
+    const qDiv = document.createElement("div");
+    qDiv.className = "q";
+    qDiv.textContent = `${q[0]} vs ${q[1]}`;
+    const pick = document.createElement("div");
+    pick.className = picks[i] === 0 ? "pick-a" : "pick-b";
+    pick.textContent = "👉 " + q[picks[i]];
+    li.append(qDiv, pick);
+    list.appendChild(li);
+  });
+  show("result");
+}
+
+function renderCustom() {
+  const list = $("customList");
+  list.innerHTML = "";
+  if (custom.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "아직 추가한 질문이 없어요.";
+    list.appendChild(li);
+    return;
+  }
+  custom.forEach((q, i) => {
+    const li = document.createElement("li");
+    const span = document.createElement("span");
+    span.textContent = `${q[0]} vs ${q[1]}`;
+    const del = document.createElement("button");
+    del.textContent = "✕";
+    del.title = "삭제";
+    del.onclick = () => { custom.splice(i, 1); saveCustom(custom); renderCustom(); };
+    li.append(span, del);
+    list.appendChild(li);
+  });
+}
+
+function addCustom() {
+  const a = $("newA").value.trim();
+  const b = $("newB").value.trim();
+  if (!a || !b) { alert("두 선택지를 모두 입력해 주세요."); return; }
+  custom.push([a, b]);
+  saveCustom(custom);
+  $("newA").value = "";
+  $("newB").value = "";
+  renderCustom();
+}
+
+$("startBtn").onclick = startGame;
+$("againBtn").onclick = startGame;
+$("homeBtn").onclick = () => show("start");
+$("editBtn").onclick = () => { renderCustom(); show("edit"); };
+$("backBtn").onclick = () => show("start");
+$("addBtn").onclick = addCustom;
+$("newB").addEventListener("keydown", e => { if (e.key === "Enter") addCustom(); });
+$("optA").onclick = () => choose(0);
+$("optB").onclick = () => choose(1);
+
+// 온라인/오프라인 표시
+function updateNet() {
+  const off = !navigator.onLine;
+  $("net").textContent = off ? "오프라인" : "온라인";
+  $("net").classList.toggle("off", off);
+}
+window.addEventListener("online", updateNet);
+window.addEventListener("offline", updateNet);
+updateNet();
+
+// 오프라인 지원: 서비스 워커 등록
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(err => console.warn("SW 등록 실패:", err));
+  });
+}
+</script>
+</body>
+</html>
